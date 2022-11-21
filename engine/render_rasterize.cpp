@@ -11,6 +11,44 @@ int zbuffer_scale = FIXED_POINT_FACTOR / 16;
 uint8_t animated_texture_offset = 0;
 uint8_t animated_texture_counter = 0;
 
+
+#define CHECK_PIXEL   int32_t edge1 = (x - x2) * (y3 - y2) - (y - y2) * (x3 - x2);\
+                   if (edge1 < 0) {\
+                    if (skipline == 1) {\
+                        x = x_large;\
+                    }\
+                    continue;\
+                }\
+                int32_t edge2 = (x - x3) * (y1 - y3) - (y - y3) * (x1 - x3);\
+                if (edge2 < 0) {\
+                    if (skipline == 1) {\
+                        x = x_large;\
+                    }\
+                    continue;\
+                }\
+                int32_t edge3 = (x - x1) * (y2 - y1) - (y - y1) * (x2 - x1);\
+                if (edge3 < 0) {\
+                    if (skipline == 1) {\
+                        x = x_large;\
+                    }\
+                    continue;\
+                }\
+                skipline = 1;\
+                int32_t w1 = (FIXED_POINT_FACTOR * edge1) / area;\
+                int32_t w2 = (FIXED_POINT_FACTOR * edge2) / area;\
+                int32_t w3 = (FIXED_POINT_FACTOR * edge3) / area;\
+                int32_t z = ((FIXED_POINT_FACTOR * FIXED_POINT_FACTOR * FIXED_POINT_FACTOR) / (w1 * zi1 + w2 * zi2 + w3 * zi3));\
+                if (zbuffer[y * SCREEN_WIDTH + x] < z) {\
+                    continue; \
+                } else {\
+                    zbuffer[y * SCREEN_WIDTH + x] = z; \
+                }\
+
+
+
+
+
+
 //The rasterizer along with shaders is relatively small, so it can run from scratch memory
 //Note that if the rasterizer is run from flash instead, the integer divide function should also be put into flash
 // --> Remove target_compile_definitions(pico3d PUBLIC PICO_DIVIDER_IN_RAM=1) in CMake file
@@ -162,287 +200,238 @@ void __scratch_x("render_rasterize") render_rasterize() {
         int32_t zi3 = ((FIXED_POINT_FACTOR * FIXED_POINT_FACTOR) / triangle_list_current[current_triangle].vertex3.z);
 
 
-        //once we have the limits of the bounding box, loop over that area of the screen
-        for (int32_t y = y_small; y < y_large; y++) {
-
-            int8_t skipline = 0;
-
-            for (int32_t x = x_small; x < x_large; x++) {
-
-                //Determine if the pixel is within the triangle using edge functions
-                
-                int32_t edge1 = (x - x2) * (y3 - y2) - (y - y2) * (x3 - x2);
-                if (edge1 < 0) {
-                    if (skipline == 1) {
-                        x = x_large;
+        switch (shader_id){
+            case 1:
+                for (int32_t y = y_small; y < y_large; y++) {
+                    int8_t skipline = 0;
+                    for (int32_t x = x_small; x < x_large; x++) {
+                        CHECK_PIXEL
+                        color_t triangle_color = triangle_list_current[current_triangle].vertex_parameter1.color;
+                        fb[y * SCREEN_WIDTH + x] = triangle_color; 
                     }
-                    continue;
                 }
+                break;
+            case 2:
+                for (int32_t y = y_small; y < y_large; y++) {
+                    int8_t skipline = 0;
+                    for (int32_t x = x_small; x < x_large; x++) {
+                        CHECK_PIXEL
+                        color_t color = triangle_list_current[current_triangle].vertex_parameter1.color;
+                        uint8_t c1r = color & 0x000F;
+                        uint8_t c1b = (color >> 8) & 0x000F;
+                        uint8_t c1g = (color >> 12) & 0x000F;
 
-                int32_t edge2 = (x - x3) * (y1 - y3) - (y - y3) * (x1 - x3);
-                if (edge2 < 0) {
-                    if (skipline == 1) {
-                        x = x_large;
+                        color = triangle_list_current[current_triangle].vertex_parameter2.color;
+                        uint8_t c2r = color & 0x000F;
+                        uint8_t c2b = (color >> 8) & 0x000F;
+                        uint8_t c2g = (color >> 12) & 0x000F;
+                        
+                        color = triangle_list_current[current_triangle].vertex_parameter3.color;
+                        uint8_t c3r = color & 0x000F;
+                        uint8_t c3b = (color >> 8) & 0x000F;
+                        uint8_t c3g = (color >> 12) & 0x000F;
+
+                        uint32_t r = (w1 * c1r + w2 * c2r + w3 * c3r) / FIXED_POINT_FACTOR;
+                        uint32_t g = (w1 * c1g + w2 * c2g + w3 * c3g) / FIXED_POINT_FACTOR;
+                        uint32_t b = (w1 * c1b + w2 * c2b + w3 * c3b) / FIXED_POINT_FACTOR;
+
+                        //we have to give a small positive bias
+                        if (r < 15)
+                            r++;
+                        if (g < 15)
+                            g++;
+                        if (b < 15)
+                            b++;
+
+                        color = g;
+                        color <<= 4;
+                        color |= b;
+                        color <<= 8;
+                        color |= r;
+
+                        fb[y * SCREEN_WIDTH + x] = color;
+
                     }
-                    continue;
                 }
+                break;
+            case 100:
+                for (int32_t y = y_small; y < y_large; y++) {
+                    int8_t skipline = 0;
+                    for (int32_t x = x_small; x < x_large; x++) {
+                        CHECK_PIXEL
+                        uint32_t u = (w1 * u1 + w2 * u2 + w3 * u3);
+                        uint32_t v = (w1 * v1 + w2 * v2 + w3 * v3);
 
-                int32_t edge3 = (x - x1) * (y2 - y1) - (y - y1) * (x2 - x1);
-                if (edge3 < 0) {
-                    if (skipline == 1) {
-                        x = x_large;
+                        //scale back to pixel position
+                        u = u / FIXED_POINT_FACTOR;
+                        v = v / FIXED_POINT_FACTOR;
+
+                        //clamp uv coordinates
+                        if (u > image_size - 1)
+                            u = image_size - 1;
+                        if (v > image_size - 1)
+                            v = image_size - 1;
+
+                        fb[y * SCREEN_WIDTH + x] = texture[u * image_size + v];
                     }
-                    continue;
                 }
+                break;
+            case 101:
+                for (int32_t y = y_small; y < y_large; y++) {
+                    int8_t skipline = 0;
+                    for (int32_t x = x_small; x < x_large; x++) {
+                        CHECK_PIXEL
+                        uint32_t u = (w1 * u1 + w2 * u2 + w3 * u3);
+                        uint32_t v = (w1 * v1 + w2 * v2 + w3 * v3);
 
 
-                skipline = 1;
-                
+                        //scale back to pixel position
+                        u = u / FIXED_POINT_FACTOR;
+                        v = v / FIXED_POINT_FACTOR;
 
-                int32_t w1 = (FIXED_POINT_FACTOR * edge1) / area;
-                int32_t w2 = (FIXED_POINT_FACTOR * edge2) / area;
-                int32_t w3 = (FIXED_POINT_FACTOR * edge3) / area;
+                        //clamp uv coordinates
+                        if (u > image_size - 1)
+                            u = image_size - 1;
+                        if (v > image_size - 1)
+                            v = image_size - 1;
 
-                //interpolated Z coordinate
-                int32_t z = ((FIXED_POINT_FACTOR * FIXED_POINT_FACTOR * FIXED_POINT_FACTOR) / (w1 * zi1 + w2 * zi2 + w3 * zi3));
-                
+                        u = (u + animated_texture_offset) % 32;
 
-                //check if a closer value exists in Z-Buffer
-                if (zbuffer[y * SCREEN_WIDTH + x] < z) {
-                    continue; //skip pixel if there is
-                } else {
-                    zbuffer[y * SCREEN_WIDTH + x] = z; //write new z buffer value
+                        fb[y * SCREEN_WIDTH + x] = texture[u * image_size + v];
+
+                    }
                 }
+                break;
+            case 251:
+                for (int32_t y = y_small; y < y_large; y++) {
+                    int8_t skipline = 0;
+                    for (int32_t x = x_small; x < x_large; x++) {
+                        CHECK_PIXEL
+                        //test color based on current triangle
+                        color_t triangle_color;
+                        if (current_triangle % 5 == 0) {
+                            triangle_color = 0x0FA0;
+                        } else if (current_triangle % 5 == 1) {
+                            triangle_color = 0x00AF;
+                        } else if (current_triangle % 5 == 2) {
+                            triangle_color = 0xF0A0;
+                        } else if (current_triangle % 5 == 3) {
+                            triangle_color = 0xFFA0;
+                        } else if (current_triangle % 5 == 4) {
+                            triangle_color = 0xF0AF;
+                        }
 
-                //we can now decide on a shader to use
-                //flat shading using first vertex color as triangle color
-                if (shader_id == 1) {
-                    color_t triangle_color = triangle_list_current[current_triangle].vertex_parameter1.color;
-                    fb[y * SCREEN_WIDTH + x] = triangle_color; 
-
-
-                //linear color interpolation shader using separate vertex colors given by triangle
-                } else if (shader_id == 2) {
-
-                    color_t color = triangle_list_current[current_triangle].vertex_parameter1.color;
-                    uint8_t c1r = color & 0x000F;
-                    uint8_t c1b = (color >> 8) & 0x000F;
-                    uint8_t c1g = (color >> 12) & 0x000F;
-
-                    color = triangle_list_current[current_triangle].vertex_parameter2.color;
-                    uint8_t c2r = color & 0x000F;
-                    uint8_t c2b = (color >> 8) & 0x000F;
-                    uint8_t c2g = (color >> 12) & 0x000F;
-                    
-                    color = triangle_list_current[current_triangle].vertex_parameter3.color;
-                    uint8_t c3r = color & 0x000F;
-                    uint8_t c3b = (color >> 8) & 0x000F;
-                    uint8_t c3g = (color >> 12) & 0x000F;
-
-                    uint32_t r = (w1 * c1r + w2 * c2r + w3 * c3r) / FIXED_POINT_FACTOR;
-                    uint32_t g = (w1 * c1g + w2 * c2g + w3 * c3g) / FIXED_POINT_FACTOR;
-                    uint32_t b = (w1 * c1b + w2 * c2b + w3 * c3b) / FIXED_POINT_FACTOR;
-
-                    //we have to give a small positive bias
-                    if (r < 15)
-                        r++;
-                    if (g < 15)
-                        g++;
-                    if (b < 15)
-                        b++;
-
-                    color = g;
-                    color <<= 4;
-                    color |= b;
-                    color <<= 8;
-                    color |= r;
-
-                    fb[y * SCREEN_WIDTH + x] = color;
-
-
-                //Textures shaders exported by the chunk export
-                } else if (shader_id == 100) {
-
-
-                    
-                    uint32_t u = (w1 * u1 + w2 * u2 + w3 * u3);
-                    uint32_t v = (w1 * v1 + w2 * v2 + w3 * v3);
-
-                    //scale back to pixel position
-                    u = u / FIXED_POINT_FACTOR;
-                    v = v / FIXED_POINT_FACTOR;
-
-                    //clamp uv coordinates
-                    if (u > image_size - 1)
-                        u = image_size - 1;
-                    if (v > image_size - 1)
-                        v = image_size - 1;
-
-                    fb[y * SCREEN_WIDTH + x] = texture[u * image_size + v];
-
-
-                //Scrolling Texture by chunk export
-                } else if (shader_id == 101) {
-
-                    
-                    uint32_t u = (w1 * u1 + w2 * u2 + w3 * u3);
-                    uint32_t v = (w1 * v1 + w2 * v2 + w3 * v3);
-
-
-                    //scale back to pixel position
-                    u = u / FIXED_POINT_FACTOR;
-                    v = v / FIXED_POINT_FACTOR;
-
-                    //clamp uv coordinates
-                    if (u > image_size - 1)
-                        u = image_size - 1;
-                    if (v > image_size - 1)
-                        v = image_size - 1;
-
-                    u = (u + animated_texture_offset) % 32;
-
-                    fb[y * SCREEN_WIDTH + x] = texture[u * image_size + v];
-
-                
-                #ifdef DEBUG_SHADERS
-
-                //DEBUG SHADERS
-                //the following shaders are additional debug shaders, starting at ID 250
-
-                //Wireframe mode uses shader_id 250 already
-                //} else if (shader_id == 250) {
-
-                //flat shading using triangle color 
-                } else if (shader_id == 251) {
-
-                    //test color based on current triangle
-                    color_t triangle_color;
-                    if (current_triangle % 5 == 0) {
-                        triangle_color = 0x0FA0;
-                    } else if (current_triangle % 5 == 1) {
-                        triangle_color = 0x00AF;
-                    } else if (current_triangle % 5 == 2) {
-                        triangle_color = 0xF0A0;
-                    } else if (current_triangle % 5 == 3) {
-                        triangle_color = 0xFFA0;
-                    } else if (current_triangle % 5 == 4) {
-                        triangle_color = 0xF0AF;
+                        fb[y * SCREEN_WIDTH + x] = triangle_color; 
                     }
-
-                    fb[y * SCREEN_WIDTH + x] = triangle_color; 
-
-                //Z-Buffer output
-                } else if (shader_id == 252) {
-                    int32_t grayscale = z / zbuffer_scale;
-                    switch (grayscale) {
-                        case 0: fb[y * SCREEN_WIDTH + x] = 0x0000; break;
-                        case 1: fb[y * SCREEN_WIDTH + x] = 0x1101; break;
-                        case 2: fb[y * SCREEN_WIDTH + x] = 0x2202; break;
-                        case 3: fb[y * SCREEN_WIDTH + x] = 0x3303; break;
-                        case 4: fb[y * SCREEN_WIDTH + x] = 0x4404; break;
-                        case 5: fb[y * SCREEN_WIDTH + x] = 0x5505; break;
-                        case 6: fb[y * SCREEN_WIDTH + x] = 0x6606; break;
-                        case 7: fb[y * SCREEN_WIDTH + x] = 0x7707; break;
-                        case 8: fb[y * SCREEN_WIDTH + x] = 0x8808; break;
-                        case 9: fb[y * SCREEN_WIDTH + x] = 0x9909; break;
-                        case 10: fb[y * SCREEN_WIDTH + x] = 0xAA0A; break;
-                        case 11: fb[y * SCREEN_WIDTH + x] = 0xBB0B; break;
-                        case 12: fb[y * SCREEN_WIDTH + x] = 0xCC0C; break;
-                        case 13: fb[y * SCREEN_WIDTH + x] = 0xDD0D; break;
-                        case 14: fb[y * SCREEN_WIDTH + x] = 0xEE0E; break;
-                        case 15: fb[y * SCREEN_WIDTH + x] = 0xFF0F; break;
-                        default: fb[y * SCREEN_WIDTH + x] = 0x000F; break; //red if something is out of range
+                }
+                break;
+            case 252:
+                for (int32_t y = y_small; y < y_large; y++) {
+                    int8_t skipline = 0;
+                    for (int32_t x = x_small; x < x_large; x++) {
+                        CHECK_PIXEL
+                        int32_t grayscale = z / zbuffer_scale;
+                        switch (grayscale) {
+                            case 0: fb[y * SCREEN_WIDTH + x] = 0x0000; break;
+                            case 1: fb[y * SCREEN_WIDTH + x] = 0x1101; break;
+                            case 2: fb[y * SCREEN_WIDTH + x] = 0x2202; break;
+                            case 3: fb[y * SCREEN_WIDTH + x] = 0x3303; break;
+                            case 4: fb[y * SCREEN_WIDTH + x] = 0x4404; break;
+                            case 5: fb[y * SCREEN_WIDTH + x] = 0x5505; break;
+                            case 6: fb[y * SCREEN_WIDTH + x] = 0x6606; break;
+                            case 7: fb[y * SCREEN_WIDTH + x] = 0x7707; break;
+                            case 8: fb[y * SCREEN_WIDTH + x] = 0x8808; break;
+                            case 9: fb[y * SCREEN_WIDTH + x] = 0x9909; break;
+                            case 10: fb[y * SCREEN_WIDTH + x] = 0xAA0A; break;
+                            case 11: fb[y * SCREEN_WIDTH + x] = 0xBB0B; break;
+                            case 12: fb[y * SCREEN_WIDTH + x] = 0xCC0C; break;
+                            case 13: fb[y * SCREEN_WIDTH + x] = 0xDD0D; break;
+                            case 14: fb[y * SCREEN_WIDTH + x] = 0xEE0E; break;
+                            case 15: fb[y * SCREEN_WIDTH + x] = 0xFF0F; break;
+                            default: fb[y * SCREEN_WIDTH + x] = 0x000F; break; //red if something is out of range
                     }
-
-                //linear color interpolation shader using separate vertex colors rgb (debug)
-                } else if (shader_id == 253) {
-                    uint32_t r = ((w1 * 15) / FIXED_POINT_FACTOR);
-                    uint32_t g = ((w2 * 15) / FIXED_POINT_FACTOR);
-                    uint32_t b = ((w3 * 15) / FIXED_POINT_FACTOR);
-
-
-                    uint16_t color = g;
-                    color <<= 4;
-                    color |= b;
-                    color <<= 8;
-                    color |= r;
-
-                    fb[y * SCREEN_WIDTH + x] = color;
-
-                //Test texture with linear interpolation
-                } else if (shader_id == 254) {
+                    }
+                }
+                break;
+            case 253:
+                for (int32_t y = y_small; y < y_large; y++) {
+                    int8_t skipline = 0;
+                    for (int32_t x = x_small; x < x_large; x++) {
+                        CHECK_PIXEL
+                        uint32_t r = ((w1 * 15) / FIXED_POINT_FACTOR);
+                        uint32_t g = ((w2 * 15) / FIXED_POINT_FACTOR);
+                        uint32_t b = ((w3 * 15) / FIXED_POINT_FACTOR);
 
 
-                    int image_size = 16;
+                        uint16_t color = g;
+                        color <<= 4;
+                        color |= b;
+                        color <<= 8;
+                        color |= r;
 
-                    //simple UV coordinates for vertices
-                    u1 = 0;
-                    v1 = image_size;
-                    u2 = image_size;
-                    v2 = 0;
-                    u3 = 0;
-                    v3 = 0;
-                    
-                    //Plane model
-                    if (current_triangle % 2 == 0) {
+                        fb[y * SCREEN_WIDTH + x] = color;
+                    }
+                }
+                break;
+            case 254:
+                for (int32_t y = y_small; y < y_large; y++) {
+                    int8_t skipline = 0;
+                    for (int32_t x = x_small; x < x_large; x++) {
+                        CHECK_PIXEL
+                        int image_size = 16;
+                        //simple UV coordinates for vertices
                         u1 = 0;
                         v1 = image_size;
                         u2 = image_size;
-                        v2 = image_size;
-                        u3 = image_size;
-                        v3 = 0;
+                        v2 = 0;
+                        u3 = 0;
+                        v3 = 0;           
+                        //Plane model
+                        if (current_triangle % 2 == 0) {
+                            u1 = 0;
+                            v1 = image_size;
+                            u2 = image_size;
+                            v2 = image_size;
+                            u3 = image_size;
+                            v3 = 0;
+                        }
+                        uint32_t u = (w1 * u1 + w2 * u2 + w3 * u3);
+                        uint32_t v = (w1 * v1 + w2 * v2 + w3 * v3);
+                        /*
+                        //Perspective interpolation (more cpu power needed!)
+                        u1 = u1 * zi1;
+                        v1 = v1 * zi1;
+                        u2 = u2 * zi2;
+                        v2 = v2 * zi2;
+                        u3 = u3 * zi3;
+                        v3 = v3 * zi3;
+                        uint32_t u = (w1 * u1 + w2 * u2 + w3 * u3) / FIXED_POINT_FACTOR / FIXED_POINT_FACTOR;
+                        uint32_t v = (w1 * v1 + w2 * v2 + w3 * v3) / FIXED_POINT_FACTOR / FIXED_POINT_FACTOR;
+                        u = u * z;
+                        v = v * z;
+                        */
+                        //scale back to pixel position
+                        u = u / FIXED_POINT_FACTOR;
+                        v = v / FIXED_POINT_FACTOR;
+                        //clamp uv coordinates
+                        if (u > image_size - 1)
+                            u = image_size - 1;
+                        if (v > image_size - 1)
+                            v = image_size - 1;
+                        fb[y * SCREEN_WIDTH + x] = test_texture[v * image_size + u];
                     }
-                    
-
-
-                    uint32_t u = (w1 * u1 + w2 * u2 + w3 * u3);
-                    uint32_t v = (w1 * v1 + w2 * v2 + w3 * v3);
-
-
-                    /*
-
-                    //Perspective interpolation (more cpu power needed!)
-                    u1 = u1 * zi1;
-                    v1 = v1 * zi1;
-                    u2 = u2 * zi2;
-                    v2 = v2 * zi2;
-                    u3 = u3 * zi3;
-                    v3 = v3 * zi3;
-
-
-                    uint32_t u = (w1 * u1 + w2 * u2 + w3 * u3) / FIXED_POINT_FACTOR / FIXED_POINT_FACTOR;
-                    uint32_t v = (w1 * v1 + w2 * v2 + w3 * v3) / FIXED_POINT_FACTOR / FIXED_POINT_FACTOR;
-
-                    u = u * z;
-                    v = v * z;
-
-                    */
-
-                    //scale back to pixel position
-                    u = u / FIXED_POINT_FACTOR;
-                    v = v / FIXED_POINT_FACTOR;
-
-                    //clamp uv coordinates
-                    if (u > image_size - 1)
-                        u = image_size - 1;
-                    if (v > image_size - 1)
-                        v = image_size - 1;
-
-                    fb[y * SCREEN_WIDTH + x] = test_texture[v * image_size + u];
-
-
-
-                //if a known shader id is not specified, return red to alert dev
-                } else {
-                    fb[y * SCREEN_WIDTH + x] = 0x000F;
-                #endif
-
                 }
-
-            }
-
+                break;
+            default:
+                for (int32_t y = y_small; y < y_large; y++) {
+                    int8_t skipline = 0;
+                    for (int32_t x = x_small; x < x_large; x++) {
+                        CHECK_PIXEL
+                        fb[y * SCREEN_WIDTH + x] = 0x000F;
+                    }
+                }
         }
-
+         
     }
 
     //Finally we get the total time which should not exceed 25ms/25000us
