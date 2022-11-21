@@ -212,29 +212,27 @@ void __scratch_x("render_rasterize") render_rasterize() {
                 }
                 break;
             case 2:
+                color_t color = triangle_list_current[current_triangle].vertex_parameter1.color;
+                uint8_t c1r = color & 0x000F;
+                uint8_t c1b = (color >> 8) & 0x000F;
+                uint8_t c1g = (color >> 12) & 0x000F;
+
+                color = triangle_list_current[current_triangle].vertex_parameter2.color;
+                uint8_t c2r = color & 0x000F;
+                uint8_t c2b = (color >> 8) & 0x000F;
+                uint8_t c2g = (color >> 12) & 0x000F;
+                        
+                color = triangle_list_current[current_triangle].vertex_parameter3.color;
+                uint8_t c3r = color & 0x000F;
+                uint8_t c3b = (color >> 8) & 0x000F;
+                uint8_t c3g = (color >> 12) & 0x000F;
                 for (int32_t y = y_small; y < y_large; y++) {
                     int8_t skipline = 0;
                     for (int32_t x = x_small; x < x_large; x++) {
                         CHECK_PIXEL
-                        color_t color = triangle_list_current[current_triangle].vertex_parameter1.color;
-                        uint8_t c1r = color & 0x000F;
-                        uint8_t c1b = (color >> 8) & 0x000F;
-                        uint8_t c1g = (color >> 12) & 0x000F;
-
-                        color = triangle_list_current[current_triangle].vertex_parameter2.color;
-                        uint8_t c2r = color & 0x000F;
-                        uint8_t c2b = (color >> 8) & 0x000F;
-                        uint8_t c2g = (color >> 12) & 0x000F;
-                        
-                        color = triangle_list_current[current_triangle].vertex_parameter3.color;
-                        uint8_t c3r = color & 0x000F;
-                        uint8_t c3b = (color >> 8) & 0x000F;
-                        uint8_t c3g = (color >> 12) & 0x000F;
-
                         uint32_t r = (w1 * c1r + w2 * c2r + w3 * c3r) / FIXED_POINT_FACTOR;
                         uint32_t g = (w1 * c1g + w2 * c2g + w3 * c3g) / FIXED_POINT_FACTOR;
                         uint32_t b = (w1 * c1b + w2 * c2b + w3 * c3b) / FIXED_POINT_FACTOR;
-
                         //we have to give a small positive bias
                         if (r < 15)
                             r++;
@@ -242,7 +240,6 @@ void __scratch_x("render_rasterize") render_rasterize() {
                             g++;
                         if (b < 15)
                             b++;
-
                         color = g;
                         color <<= 4;
                         color |= b;
@@ -374,27 +371,28 @@ void __scratch_x("render_rasterize") render_rasterize() {
                 }
                 break;
             case 254:
+                //simple UV coordinates for vertices
+                u1 = 0;
+                v1 = image_size;
+                u2 = image_size;
+                v2 = 0;
+                u3 = 0;
+                v3 = 0;           
+                        //Plane model
+                if (current_triangle % 2 == 0) {
+                    u1 = 0;
+                    v1 = image_size;
+                    u2 = image_size;
+                    v2 = image_size;
+                    u3 = image_size;
+                    v3 = 0;
+                }
                 for (int32_t y = y_small; y < y_large; y++) {
                     int8_t skipline = 0;
                     for (int32_t x = x_small; x < x_large; x++) {
                         CHECK_PIXEL
                         int image_size = 16;
-                        //simple UV coordinates for vertices
-                        u1 = 0;
-                        v1 = image_size;
-                        u2 = image_size;
-                        v2 = 0;
-                        u3 = 0;
-                        v3 = 0;           
-                        //Plane model
-                        if (current_triangle % 2 == 0) {
-                            u1 = 0;
-                            v1 = image_size;
-                            u2 = image_size;
-                            v2 = image_size;
-                            u3 = image_size;
-                            v3 = 0;
-                        }
+                        
                         uint32_t u = (w1 * u1 + w2 * u2 + w3 * u3);
                         uint32_t v = (w1 * v1 + w2 * v2 + w3 * v3);
                         /*
